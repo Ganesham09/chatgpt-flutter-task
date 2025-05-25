@@ -3,7 +3,6 @@ import 'package:uuid/uuid.dart';
 enum MessageRole {
   user,
   assistant,
-  system,
 }
 
 class Message {
@@ -11,12 +10,16 @@ class Message {
   final String content;
   final MessageRole role;
   final DateTime timestamp;
+  final String? imageUrl;
+  final String model;
 
   Message({
     String? id,
     required this.content,
     required this.role,
     DateTime? timestamp,
+    this.imageUrl,
+    required this.model,
   })  : id = id ?? const Uuid().v4(),
         timestamp = timestamp ?? DateTime.now();
 
@@ -24,12 +27,16 @@ class Message {
     String? content,
     MessageRole? role,
     DateTime? timestamp,
+    String? imageUrl,
+    String? model,
   }) {
     return Message(
       id: id,
       content: content ?? this.content,
       role: role ?? this.role,
       timestamp: timestamp ?? this.timestamp,
+      imageUrl: imageUrl ?? this.imageUrl,
+      model: model ?? this.model,
     );
   }
 
@@ -39,17 +46,21 @@ class Message {
       'content': content,
       'role': role.toString().split('.').last,
       'timestamp': timestamp.toIso8601String(),
+      'imageUrl': imageUrl,
+      'model': model,
     };
   }
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'] as String,
-      content: json['content'] as String,
+      id: json['id'],
+      content: json['content'],
       role: MessageRole.values.firstWhere(
         (e) => e.toString().split('.').last == json['role'],
       ),
-      timestamp: DateTime.parse(json['timestamp'] as String),
+      timestamp: DateTime.parse(json['timestamp']),
+      imageUrl: json['imageUrl'],
+      model: json['model'],
     );
   }
 } 

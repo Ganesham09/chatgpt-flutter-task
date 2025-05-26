@@ -1,13 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:chat_gpt_clone/models/conversation.dart';
 import 'package:chat_gpt_clone/models/message.dart';
-import 'package:chat_gpt_clone/services/chat_service.dart';
-import 'package:chat_gpt_clone/services/storage_service.dart';
+import 'package:chat_gpt_clone/services/api_service.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, AsyncValue<List<Conversation>>>((ref) {
   return ChatNotifier(
-    chatService: ref.watch(chatServiceProvider),
-    storageService: ref.watch(storageServiceProvider),
+    apiService: ref.watch(apiServiceProvider),
   );
 });
 
@@ -16,21 +14,18 @@ final currentConversationProvider = StateProvider<Conversation?>((ref) => null);
 final selectedModelProvider = StateProvider<String>((ref) => 'gpt-3.5-turbo');
 
 class ChatNotifier extends StateNotifier<AsyncValue<List<Conversation>>> {
-  final ChatService _chatService;
-  final StorageService _storageService;
+  final ApiService _apiService;
 
   ChatNotifier({
-    required ChatService chatService,
-    required StorageService storageService,
-  })  : _chatService = chatService,
-        _storageService = storageService,
+    required ApiService apiService,
+  })  : _apiService = apiService,
         super(const AsyncValue.loading()) {
     _loadConversations();
   }
 
   Future<void> _loadConversations() async {
     try {
-      final conversations = await _storageService.loadConversations();
+      final conversations = await _apiService.getConversations();
       state = AsyncValue.data(conversations);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
@@ -41,76 +36,58 @@ class ChatNotifier extends StateNotifier<AsyncValue<List<Conversation>>> {
     final currentConversation = ref.read(currentConversationProvider);
     final selectedModel = ref.read(selectedModelProvider);
 
-    if (currentConversation == null) {
-      // Create new conversation
-      final newConversation = Conversation();
-      final userMessage = Message(
-        content: content,
-        role: MessageRole.user,
-        imageUrl: imageUrl,
-        model: selectedModel,
-      );
+    try {
+      if (currentConversation == null) {
+        // Create new conversation
+        final newConversation = await _apiService.createConversation();
+        ref.read(currentConversationProvider.notifier).state = newConversation;
 
-      newConversation.messages.add(userMessage);
-      ref.read(currentConversationProvider.notifier).state = newConversation;
+        // Send message
+        final messages = await _apiService.sendMessage(
+          newConversation.id,
+          content,
+          imageUrl: imageUrl,
+          model: selectedModel,
+        );
 
-      // Get AI response
-      final response = await _chatService.getChatCompletion(
-        messages: [userMessage],
-        model: selectedModel,
-      );
+        // Update conversation with new messages
+        final updatedConversation = await _apiService.getConversation(newConversation.id);
+        ref.read(currentConversationProvider.notifier).state = updatedConversation;
+      } else {
+        // Send message to existing conversation
+        final messages = await _apiService.sendMessage(
+          currentConversation.id,
+          content,
+          imageUrl: imageUrl,
+          model: selectedModel,
+        );
 
-      final aiMessage = Message(
-        content: response,
-        role: MessageRole.assistant,
-        model: selectedModel,
-      );
+        // Update conversation with new messages
+        final updatedConversation = await _apiService.getConversation(currentConversation.id);
+        ref.read(currentConversationProvider.notifier).state = updatedConversation;
+      }
 
-      newConversation.messages.add(aiMessage);
-      await _storageService.saveConversation(newConversation);
       await _loadConversations();
-    } else {
-      // Add to existing conversation
-      final userMessage = Message(
-        content: content,
-        role: MessageRole.user,
-        imageUrl: imageUrl,
-        model: selectedModel,
-      );
-
-      currentConversation.messages.add(userMessage);
-      ref.read(currentConversationProvider.notifier).state = currentConversation;
-
-      // Get AI response
-      final response = await _chatService.getChatCompletion(
-        messages: currentConversation.messages,
-        model: selectedModel,
-      );
-
-      final aiMessage = Message(
-        content: response,
-        role: MessageRole.assistant,
-        model: selectedModel,
-      );
-
-      currentConversation.messages.add(aiMessage);
-      await _storageService.saveConversation(currentConversation);
-      await _loadConversations();
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
     }
   }
 
   Future<void> deleteConversation(String id) async {
-    await _storageService.deleteConversation(id);
-    await _loadConversations();
+    try {
+      await _apiService.deleteConversation(id);
+      await _loadConversations();
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+    }
   }
 
   Future<void> updateConversationTitle(String id, String title) async {
-    final conversations = state.value ?? [];
-    final index = conversations.indexWhere((c) => c.id == id);
-    if (index != -1) {
-      final updatedConversation = conversations[index].copyWith(title: title);
-      await _storageService.saveConversation(updatedConversation);
+    try {
+      await _apiService.updateConversationTitle(id, title);
       await _loadConversations();
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
     }
   }
 } 
